@@ -5,7 +5,7 @@ from datetime import datetime
 import pikepdf
 import win32com.client as win32
 
-from config import EXCEL_PATH, OUTPUT_CUSTOMER_DIR, SHEET_NAME, STAMP_IMAGE_PATH
+from config import EXCEL_PATH, OUTPUT_CUSTOMER_DIR, OUTPUT_PB_DIR, INCREASE_SHEET_NAME, STAMP_IMAGE_PATH
 
 
 def clean_filename(value: str) -> str:
@@ -43,7 +43,7 @@ def create_word_from_excel(account_no: str, increase_amount: int | float, docx_p
 
     try:
         workbook = excel.Workbooks.Open(str(EXCEL_PATH))
-        sheet = workbook.Worksheets(SHEET_NAME)
+        sheet = workbook.Worksheets(INCREASE_SHEET_NAME)
 
         # 1. K2 계좌번호 입력
         sheet.Range("K2").Value = account_no
@@ -226,27 +226,63 @@ def encrypt_pdf(input_pdf_path: Path, output_pdf_path: Path, password: str):
 
 
 def generate_increase_confirmation(account_no: str, increase_amount: int | float):
+    """
+    증액확인서 PDF 생성 메인 함수
+
+    1. 고객용 PDF
+       - 저장 위치: pdf_customer
+       - 비밀번호: Q7 생년월일
+
+    2. PB용 PDF
+       - 저장 위치: pdf_pb
+       - 비밀번호: 오늘 날짜 yymmdd
+    """
+
     OUTPUT_CUSTOMER_DIR.mkdir(parents=True, exist_ok=True)
+    OUTPUT_PB_DIR.mkdir(parents=True, exist_ok=True)
 
     temp_docx_path = OUTPUT_CUSTOMER_DIR / "temp_increase_confirmation.docx"
 
-    password, base_filename = create_word_from_excel(
+    customer_password, base_filename = create_word_from_excel(
         account_no=account_no,
         increase_amount=increase_amount,
         docx_path=temp_docx_path
     )
 
+    # PB용 비밀번호: 오늘 날짜 yymmdd
+    pb_password = datetime.today().strftime("%y%m%d")
+
     temp_pdf_path = OUTPUT_CUSTOMER_DIR / f"{base_filename}_temp.pdf"
-    final_pdf_path = OUTPUT_CUSTOMER_DIR / f"{base_filename}.pdf"
 
+    customer_pdf_path = OUTPUT_CUSTOMER_DIR / f"{base_filename}.pdf"
+    pb_pdf_path = OUTPUT_PB_DIR / f"{base_filename}.pdf"
+
+    # 1. Word → 임시 PDF 변환
     convert_docx_to_pdf(temp_docx_path, temp_pdf_path)
-    encrypt_pdf(temp_pdf_path, final_pdf_path, password)
 
+    # 2. 고객용 PDF 암호화
+    encrypt_pdf(
+        input_pdf_path=temp_pdf_path,
+        output_pdf_path=customer_pdf_path,
+        password=customer_password
+    )
+
+    # 3. PB용 PDF 암호화
+    encrypt_pdf(
+        input_pdf_path=temp_pdf_path,
+        output_pdf_path=pb_pdf_path,
+        password=pb_password
+    )
+
+    # 4. 임시 파일 삭제
     temp_pdf_path.unlink(missing_ok=True)
     temp_docx_path.unlink(missing_ok=True)
 
-    print(f"PDF 생성 완료: {final_pdf_path}")
-    print(f"PDF 비밀번호: {password}")
+    print(f"고객용 PDF 생성 완료: {customer_pdf_path}")
+    print(f"고객용 PDF 비밀번호: {customer_password}")
+
+    print(f"PB용 PDF 생성 완료: {pb_pdf_path}")
+    print(f"PB용 PDF 비밀번호: {pb_password}")
 
 
 if __name__ == "__main__":
@@ -258,4 +294,4 @@ if __name__ == "__main__":
     generate_increase_confirmation(
         account_no=account_no,
         increase_amount=increase_amount
-    )
+    )    
