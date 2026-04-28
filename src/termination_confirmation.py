@@ -29,8 +29,8 @@ LOGO_HEIGHT_CM = 1.2
 
 # 도장 위치/크기
 STAMP_OFFSET_X_CM = 13.8   # 회사명 끝에서 오른쪽으로 얼마나 갈지
-STAMP_OFFSET_Y_CM = -1.7  # 회사명 기준 위/아래 이동
-STAMP_SIZE_CM = 1.8       # 도장 크기
+STAMP_OFFSET_Y_CM = -1.9  # 회사명 기준 위/아래 이동
+STAMP_SIZE_CM = 2       # 도장 크기
 
 
 def clean_filename(value: str) -> str:
@@ -39,8 +39,44 @@ def clean_filename(value: str) -> str:
 
 
 def normalize_birth_password(value) -> str:
-    text = str(value).strip()
+    """
+    생년월일 값을 PDF 비밀번호용 YYMMDD 문자열로 변환합니다.
+
+    처리 예:
+    - 860104.0     -> 860104
+    - 860104       -> 860104
+    - 010104       -> 010104
+    - 19860104     -> 860104
+    - 1986-01-04   -> 860104
+    - 1986.01.04   -> 860104
+    - datetime     -> yymmdd
+    """
+
+    if value is None:
+        return ""
+
+    if isinstance(value, datetime):
+        return value.strftime("%y%m%d")
+
+    if isinstance(value, (int, float)):
+        if float(value).is_integer():
+            text = str(int(value))
+        else:
+            text = str(value)
+    else:
+        text = str(value).strip()
+
     digits = re.sub(r"\D", "", text)
+
+    if len(digits) == 8:
+        return digits[2:]
+
+    if 1 <= len(digits) < 6:
+        return digits.zfill(6)
+
+    if len(digits) == 7 and digits.endswith("0"):
+        return digits[:-1]
+
     return digits
 
 
