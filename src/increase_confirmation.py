@@ -14,15 +14,87 @@ def clean_filename(value: str) -> str:
 
 
 def normalize_birth_password(value) -> str:
-    text = str(value).strip()
+    """
+    생년월일 값을 PDF 비밀번호용 YYMMDD 문자열로 변환합니다.
+
+    처리 예:
+    - 860104.0     -> 860104
+    - 860104       -> 860104
+    - 010104       -> 010104
+    - 19860104     -> 860104
+    - 1986-01-04   -> 860104
+    - 1986.01.04   -> 860104
+    - datetime     -> yymmdd
+    """
+
+    if value is None:
+        return ""
+
+    # Excel 날짜/파이썬 datetime 객체인 경우
+    if isinstance(value, datetime):
+        return value.strftime("%y%m%d")
+
+    # 숫자로 들어온 경우: 860104.0 같은 문제 방지
+    if isinstance(value, (int, float)):
+        if float(value).is_integer():
+            text = str(int(value))
+        else:
+            text = str(value)
+    else:
+        text = str(value).strip()
+
     digits = re.sub(r"\D", "", text)
+
+    # 19860104 같은 8자리면 YYMMDD만 사용
+    if len(digits) == 8:
+        return digits[2:]
+
+    # 10104처럼 앞자리 0이 날아간 경우 010104로 복구
+    if 1 <= len(digits) < 6:
+        return digits.zfill(6)
+
+    # 8601040처럼 float의 .0이 붙어서 7자리가 된 경우
+    if len(digits) == 7 and digits.endswith("0"):
+        return digits[:-1]
+
     return digits
+
 def cm_to_points(cm: float) -> float:
     """
     Word 여백/페이지 크기 설정용 cm → point 변환
     1 inch = 2.54 cm, 1 inch = 72 points
     """
     return cm / 2.54 * 72
+
+def find_filled_source_row(sheet, start_row: int = 2, end_row: int = 5) -> int:
+    """
+    K2에 계좌번호를 입력한 뒤,
+    L2:R5 범위 중 실제로 값이 작성된 행을 찾습니다.
+
+    상품마다 결과가 L2:R2, L3:R3, L4:R4, L5:R5 중
+    다른 행에 나타날 수 있으므로, 가장 많이 채워진 행을 선택합니다.
+    """
+
+    best_row = None
+    best_count = 0
+
+    for row in range(start_row, end_row + 1):
+        filled_count = 0
+
+        for col in range(12, 19):  # L=12, R=18
+            value = sheet.Cells(row, col).Value
+
+            if value is not None and str(value).strip() != "":
+                filled_count += 1
+
+        if filled_count > best_count:
+            best_count = filled_count
+            best_row = row
+
+    if best_row is None or best_count == 0:
+        raise ValueError("L2:R5 범위에서 작성된 행을 찾지 못했습니다.")
+
+    return best_row
 
 def create_word_from_excel(account_no: str, increase_amount: int | float, docx_path: Path):
     """
@@ -49,9 +121,12 @@ def create_word_from_excel(account_no: str, increase_amount: int | float, docx_p
         sheet.Range("K2").Value = account_no
 
         # 2. L4:R4 복사해서 L7:R7에 값 붙여넣기
-        sheet.Range("L4:R4").Copy()
-        sheet.Range("L7:R7").PasteSpecial(Paste=-4163)  # xlPasteValues
+        excel.CalculateFullRebuild()
 
+        source_row = find_filled_source_row(sheet)
+
+        sheet.Range(f"L{source_row}:R{source_row}").Copy()
+        sheet.Range("L7:R7").PasteSpecial(Paste=-4163)  # xlPasteValues
         # 3. P9 증액금액 입력
         sheet.Range("P9").Value = increase_amount
 
@@ -177,7 +252,7 @@ def add_stamp_image_to_word(document):
 
     # 도장 크기
     inline_shape.LockAspectRatio = True
-    inline_shape.Height = cm_to_points(2.5)
+    inline_shape.Height = cm_to_points(2)
 
     # 인라인 이미지를 floating shape로 변환
     shape = inline_shape.ConvertToShape()
@@ -188,7 +263,7 @@ def add_stamp_image_to_word(document):
     # 핵심:
     # 페이지 절대좌표를 쓰지 말고, 방금 삽입된 위치 기준으로 조금만 이동
     shape.Left = cm_to_points(13.3)
-    shape.Top = cm_to_points(-0.9)
+    shape.Top = cm_to_points(-0.5)
 
     return shape
 

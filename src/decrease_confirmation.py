@@ -2,6 +2,7 @@ import re
 from pathlib import Path
 from datetime import datetime
 
+from matplotlib.pyplot import table
 import pikepdf
 import win32com.client as win32
 
@@ -19,15 +20,18 @@ SHEET_NAME = "감액 및 해지확인서"
 # 수동 조정용 상수
 # =========================
 
-# 로고 위치/크기 (페이지 기준)
-LOGO_LEFT_CM = 14.9
-LOGO_TOP_CM = 0.6
-LOGO_WIDTH_CM = 4.8
-LOGO_HEIGHT_CM = 1.4
 
-STAMP_LEFT_CM = 14
-STAMP_TOP_CM = 25
-STAMP_SIZE_CM = 2.3
+# 로고 위치/크기
+LOGO_LEFT_CM = 16.1
+LOGO_TOP_CM = 0.45
+LOGO_WIDTH_CM = 3.6
+LOGO_HEIGHT_CM = 1.1
+
+# 도장 위치/크기
+STAMP_OFFSET_X_CM = 13.8
+STAMP_OFFSET_Y_CM = -1.5
+STAMP_SIZE_CM = 2.0
+
 
 def clean_filename(value: str) -> str:
     value = str(value).strip()
@@ -35,8 +39,49 @@ def clean_filename(value: str) -> str:
 
 
 def normalize_birth_password(value) -> str:
-    text = str(value).strip()
+    """
+    생년월일 값을 PDF 비밀번호용 YYMMDD 문자열로 변환합니다.
+
+    처리 예:
+    - 860104.0     -> 860104
+    - 860104       -> 860104
+    - 010104       -> 010104
+    - 19860104     -> 860104
+    - 1986-01-04   -> 860104
+    - 1986.01.04   -> 860104
+    - datetime     -> yymmdd
+    """
+
+    if value is None:
+        return ""
+
+    # Excel 날짜/파이썬 datetime 객체인 경우
+    if isinstance(value, datetime):
+        return value.strftime("%y%m%d")
+
+    # 숫자로 들어온 경우: 860104.0 같은 문제 방지
+    if isinstance(value, (int, float)):
+        if float(value).is_integer():
+            text = str(int(value))
+        else:
+            text = str(value)
+    else:
+        text = str(value).strip()
+
     digits = re.sub(r"\D", "", text)
+
+    # 19860104 같은 8자리면 YYMMDD만 사용
+    if len(digits) == 8:
+        return digits[2:]
+
+    # 10104처럼 앞자리 0이 날아간 경우 010104로 복구
+    if 1 <= len(digits) < 6:
+        return digits.zfill(6)
+
+    # 8601040처럼 float의 .0이 붙어서 7자리가 된 경우
+    if len(digits) == 7 and digits.endswith("0"):
+        return digits[:-1]
+
     return digits
 
 
@@ -46,103 +91,196 @@ def cm_to_points(cm: float) -> float:
     """
     return cm / 2.54 * 72
 
-def add_floating_image_by_page(
+def find_filled_source_row(sheet, start_row: int = 2, end_row: int = 5) -> int:
+    """
+    K2에 계좌번호를 입력한 뒤,
+    L2:S5 범위 중 실제로 값이 작성된 행을 찾습니다.
+
+    상품마다 결과가 L2:S2, L3:S3, L4:S4, L5:S5 중
+    다른 행에 나타날 수 있으므로, 가장 많이 채워진 행을 선택합니다.
+    """
+
+    best_row = None
+    best_count = 0
+
+    for row in range(start_row, end_row + 1):
+        filled_count = 0
+
+        for col in range(12, 20):  # L=12, S=19
+            value = sheet.Cells(row, col).Value
+
+            if value is not None and str(value).strip() != "":
+                filled_count += 1
+
+        if filled_count > best_count:
+            best_count = filled_count
+            best_row = row
+
+    if best_row is None or best_count == 0:
+        raise ValueError("L2:S5 범위에서 작성된 행을 찾지 못했습니다.")
+
+    return best_row
+
+def find_text_range(document, target_text: str):
+    wdFindContinue = 1
+
+    rng = document.Content
+    finder = rng.Find
+    finder.ClearFormatting()
+    finder.Text = target_text
+    finder.Forward = True
+    finder.Wrap = wdFindContinue
+
+    found = finder.Execute()
+    if not found:
+        raise ValueError(f"문서에서 '{target_text}' 문구를 찾지 못했습니다.")
+
+    return rng.Duplicate
+
+
+
+def add_floating_image_fixed(
     document,
     image_path: Path,
+    anchor_range,
     left_cm: float,
     top_cm: float,
-    width_cm: float | None = None,
-    height_cm: float | None = None,
+    width_cm: float,
+    height_cm: float,
 ):
     """
-    페이지 기준 절대 위치에 이미지를 floating shape로 삽입합니다.
-    텍스트 앞 배치라서 공간을 차지하지 않습니다.
+    anchor는 특정 문단/문구에 잡되,
+    위치는 페이지 기준 절대 좌표로 고정합니다.
+    그리고 표 셀 영향 안 받도록 LayoutInCell=False 처리합니다.
     """
 
     if not image_path.exists():
         raise FileNotFoundError(f"이미지 파일을 찾을 수 없습니다: {image_path}")
 
-    # Word 상수
     wdWrapFront = 3
     wdRelativeHorizontalPositionPage = 1
     wdRelativeVerticalPositionPage = 1
-
-    width = -1 if width_cm is None else cm_to_points(width_cm)
-    height = -1 if height_cm is None else cm_to_points(height_cm)
 
     shape = document.Shapes.AddPicture(
         FileName=str(image_path),
         LinkToFile=False,
         SaveWithDocument=True,
-        Left=cm_to_points(left_cm),
-        Top=cm_to_points(top_cm),
-        Width=width,
-        Height=height,
+        Anchor=anchor_range,
     )
 
-    # 공간 차지하지 않도록 텍스트 앞
     shape.WrapFormat.Type = wdWrapFront
-
-    # 핵심: 페이지 기준 좌표로 고정
     shape.RelativeHorizontalPosition = wdRelativeHorizontalPositionPage
     shape.RelativeVerticalPosition = wdRelativeVerticalPositionPage
 
+    # 핵심: 표(cell) 레이아웃 영향을 받지 않게
+    try:
+        shape.LayoutInCell = False
+    except Exception:
+        pass
+
+    shape.LockAnchor = True
+
     shape.Left = cm_to_points(left_cm)
     shape.Top = cm_to_points(top_cm)
+    shape.Width = cm_to_points(width_cm)
+    shape.Height = cm_to_points(height_cm)
+
+    # 앞으로 가져오기
+    shape.ZOrder(0)
 
     return shape
 
 
 def add_stamp_image_to_word(document):
     """
-    도장을 페이지 기준 위치에 삽입합니다.
-    공간을 차지하지 않고, 가로/세로 크기를 명시해서 깨짐을 방지합니다.
+    '주식회사 플레인바닐라투자자문' 문구를 기준으로
+    도장을 상대 위치에 삽입합니다.
+
+    Y/N에 따라 문서 내용 길이가 달라져도,
+    도장은 회사명 문구 주변에 따라붙습니다.
     """
 
     if not STAMP_IMAGE_PATH.exists():
         raise FileNotFoundError(f"도장 이미지 파일을 찾을 수 없습니다: {STAMP_IMAGE_PATH}")
 
-    wdWrapFront = 3
-    wdRelativeHorizontalPositionPage = 1
-    wdRelativeVerticalPositionPage = 1
+    company_text = "주식회사 플레인바닐라투자자문"
 
+    # Word 상수
+    wdFindContinue = 1
+    wdCollapseEnd = 0
+    wdWrapFront = 3
+
+    # 기준 위치: 문자 기준 / 줄 기준
+    wdRelativeHorizontalPositionCharacter = 3
+    wdRelativeVerticalPositionLine = 3
+
+    # 1. 회사명 문구 찾기
+    company_range = document.Content
+    find = company_range.Find
+    find.ClearFormatting()
+    find.Text = company_text
+    find.Forward = True
+    find.Wrap = wdFindContinue
+
+    found = find.Execute()
+
+    if not found:
+        raise ValueError(f"문서에서 '{company_text}' 문구를 찾지 못했습니다.")
+
+    # 2. 회사명 끝 위치를 anchor로 사용
+    anchor_range = company_range.Duplicate
+    anchor_range.Collapse(wdCollapseEnd)
+
+    # 3. 도장 삽입
     shape = document.Shapes.AddPicture(
         FileName=str(STAMP_IMAGE_PATH),
         LinkToFile=False,
         SaveWithDocument=True,
-        Left=cm_to_points(STAMP_LEFT_CM),
-        Top=cm_to_points(STAMP_TOP_CM),
-        Width=cm_to_points(STAMP_SIZE_CM),
-        Height=cm_to_points(STAMP_SIZE_CM),
+        Anchor=anchor_range
     )
 
-    # 텍스트 앞: 공간 차지하지 않음
+    # 4. 공간 차지하지 않도록 floating 처리
     shape.WrapFormat.Type = wdWrapFront
 
-    # 페이지 기준 좌표로 고정
-    shape.RelativeHorizontalPosition = wdRelativeHorizontalPositionPage
-    shape.RelativeVerticalPosition = wdRelativeVerticalPositionPage
+    # 5. 회사명 기준 상대 위치 설정
+    shape.RelativeHorizontalPosition = wdRelativeHorizontalPositionCharacter
+    shape.RelativeVerticalPosition = wdRelativeVerticalPositionLine
 
-    # 앞으로 가져오기
+    shape.Left = cm_to_points(STAMP_OFFSET_X_CM)
+    shape.Top = cm_to_points(STAMP_OFFSET_Y_CM)
+
+    # 6. 도장 크기
+    shape.Width = cm_to_points(STAMP_SIZE_CM)
+    shape.Height = cm_to_points(STAMP_SIZE_CM)
+
+    # 7. 표 셀 영향 방지
+    try:
+        shape.LayoutInCell = False
+    except Exception:
+        pass
+
+    shape.LockAnchor = True
     shape.ZOrder(0)
 
     return shape
+
+
 def add_logo_image_to_word(document):
     """
-    우측 상단에 로고를 삽입합니다.
-    공간을 차지하지 않도록 floating shape로 넣습니다.
+    decrease는 로고를 코드로 넣음.
+    첫 문단에 anchor를 잡고 페이지 기준으로 고정.
     """
+    anchor_range = document.Paragraphs(1).Range
 
-    shape = add_floating_image_by_page(
+    return add_floating_image_fixed(
         document=document,
         image_path=LOGO_IMAGE_PATH,
+        anchor_range=anchor_range,
         left_cm=LOGO_LEFT_CM,
         top_cm=LOGO_TOP_CM,
         width_cm=LOGO_WIDTH_CM,
         height_cm=LOGO_HEIGHT_CM,
     )
-
-    return shape
 
 def create_decrease_word_from_excel(
     account_no: str,
@@ -185,10 +323,14 @@ def create_decrease_word_from_excel(
         # 1. K2 계좌번호 입력
         sheet.Range("K2").Value = account_no
 
-        # 1-1. L4:S4 복사해서 L8:S8에 값 붙여넣기
-        sheet.Range("L4:S4").Copy()
-        sheet.Range("L8:S8").PasteSpecial(Paste=-4163)  # xlPasteValues
+        # K2 입력 후 수식 계산
+        excel.CalculateFullRebuild()
 
+        # 1-1. L2:S5 중 실제 값이 작성된 행을 찾아 L8:S8에 값 붙여넣기
+        source_row = find_filled_source_row(sheet)
+
+        sheet.Range(f"L{source_row}:S{source_row}").Copy()
+        sheet.Range("L8:S8").PasteSpecial(Paste=-4163)  # xlPasteValues
         # 2. P10 평가금액 입력
         sheet.Range("P10").Value = valuation_amount
 
@@ -252,12 +394,14 @@ def create_decrease_word_from_excel(
         )
 
         # 13. 표 레이아웃 > 자동 맞춤 > 창에 자동으로 맞춤
-        # 13. 표 레이아웃 > 자동 맞춤 > 창에 자동으로 맞춤
+
         table = document.Tables(1)
         table.AutoFitBehavior(2)  # wdAutoFitWindow
         table.Rows.Alignment = 1  # wdAlignRowCenter
+        table.Rows.AllowBreakAcrossPages = False        
 
-        table.Range.ParagraphFormat.SpaceBefore = 11
+        # 글자 크기는 절대 건드리지 않음
+        table.Range.ParagraphFormat.SpaceBefore = 8
         table.Range.ParagraphFormat.SpaceAfter = 0
         table.Range.ParagraphFormat.LineSpacingRule = 0
         table.Rows.HeightRule = 0
