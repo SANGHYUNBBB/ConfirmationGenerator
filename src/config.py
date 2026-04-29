@@ -5,6 +5,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 EXCEL_PATH = BASE_DIR / "data" / "일임계약 리스트_통합.xlsx"
 STAMP_IMAGE_PATH = BASE_DIR / "data" / "stamp.png"
 LOGO_IMAGE_PATH = BASE_DIR / "data" / "logo.png"
+ACCOUNT_IMAGE_PATH = BASE_DIR / "data" / "account" / "account.png"
+
 
 OUTPUT_CUSTOMER_DIR = BASE_DIR / "pdf_customer"
 OUTPUT_PB_DIR = BASE_DIR / "pdf_pb"

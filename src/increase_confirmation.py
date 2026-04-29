@@ -5,8 +5,19 @@ from datetime import datetime
 import pikepdf
 import win32com.client as win32
 
-from config import EXCEL_PATH, OUTPUT_CUSTOMER_DIR, OUTPUT_PB_DIR, INCREASE_SHEET_NAME, STAMP_IMAGE_PATH
+from config import (
+    EXCEL_PATH,
+    OUTPUT_CUSTOMER_DIR,
+    OUTPUT_PB_DIR,
+    INCREASE_SHEET_NAME,
+    STAMP_IMAGE_PATH,
+    LOGO_IMAGE_PATH,
+)
 
+LOGO_LEFT_CM = 16.3   # 오른쪽/왼쪽
+LOGO_TOP_CM = 0.5     # 위/아래
+LOGO_WIDTH_CM = 3.8   # 가로 크기
+LOGO_HEIGHT_CM = 1.2  # 세로 크기
 
 def clean_filename(value: str) -> str:
     value = str(value).strip()
@@ -58,6 +69,48 @@ def normalize_birth_password(value) -> str:
         return digits[:-1]
 
     return digits
+
+def add_logo_image_to_word(document):
+    """
+    data/logo.png를 우측 상단에 floating image로 삽입합니다.
+    공간을 차지하지 않습니다.
+    """
+
+    if not LOGO_IMAGE_PATH.exists():
+        raise FileNotFoundError(f"로고 이미지 파일을 찾을 수 없습니다: {LOGO_IMAGE_PATH}")
+
+    wdWrapFront = 3
+    wdRelativeHorizontalPositionPage = 1
+    wdRelativeVerticalPositionPage = 1
+
+    anchor_range = document.Paragraphs(1).Range
+
+    shape = document.Shapes.AddPicture(
+        FileName=str(LOGO_IMAGE_PATH),
+        LinkToFile=False,
+        SaveWithDocument=True,
+        Anchor=anchor_range,
+    )
+
+    shape.WrapFormat.Type = wdWrapFront
+    shape.RelativeHorizontalPosition = wdRelativeHorizontalPositionPage
+    shape.RelativeVerticalPosition = wdRelativeVerticalPositionPage
+
+    try:
+        shape.LayoutInCell = False
+    except Exception:
+        pass
+
+    shape.LockAnchor = True
+
+    shape.Left = cm_to_points(LOGO_LEFT_CM)
+    shape.Top = cm_to_points(LOGO_TOP_CM)
+    shape.Width = cm_to_points(LOGO_WIDTH_CM)
+    shape.Height = cm_to_points(LOGO_HEIGHT_CM)
+
+    shape.ZOrder(0)
+
+    return shape
 
 def cm_to_points(cm: float) -> float:
     """
@@ -186,12 +239,17 @@ def create_word_from_excel(account_no: str, increase_amount: int | float, docx_p
         table.Rows.Alignment = 1  # wdAlignRowCenter
 
 
-        # 11-1. 회사명 오른쪽에 도장 이미지 삽입
+        
+        # 11-1. 로고 이미지 삽입
+        add_logo_image_to_word(document)
+
+        # 11-2. 회사명 오른쪽에 도장 이미지 삽입
         add_stamp_image_to_word(document)
+
         # 12. docx 저장
         document.SaveAs2(
             str(docx_path),
-            FileFormat=16  # wdFormatXMLDocument = docx
+            FileFormat=16
         )
 
         return password, base_filename

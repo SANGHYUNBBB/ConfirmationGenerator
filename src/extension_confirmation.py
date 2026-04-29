@@ -11,8 +11,8 @@ from config import (
     OUTPUT_PB_DIR,
     STAMP_IMAGE_PATH,
     LOGO_IMAGE_PATH,
+    ACCOUNT_IMAGE_PATH,
 )
-
 
 SHEET_NAME = "연장확인서"
 
@@ -202,6 +202,44 @@ def add_logo_image_to_word(document):
         height_cm=LOGO_HEIGHT_CM,
     )
 
+def add_account_image_page(document):
+    """
+    Word 문서 마지막에 새 페이지를 추가하고,
+    data/account/account.png 이미지를 첨부합니다.
+    """
+
+    if not ACCOUNT_IMAGE_PATH.exists():
+        raise FileNotFoundError(f"계좌 이미지 파일을 찾을 수 없습니다: {ACCOUNT_IMAGE_PATH}")
+
+    # Word 상수
+    wdStory = 6
+    wdPageBreak = 7
+    wdAlignParagraphCenter = 1
+
+    app = document.Application
+
+    # 문서 끝으로 이동
+    app.Selection.EndKey(Unit=wdStory)
+
+    # 새 페이지 추가
+    app.Selection.InsertBreak(Type=wdPageBreak)
+
+    # 가운데 정렬
+    app.Selection.ParagraphFormat.Alignment = wdAlignParagraphCenter
+
+    # 이미지 삽입
+    inline_shape = app.Selection.InlineShapes.AddPicture(
+        FileName=str(ACCOUNT_IMAGE_PATH),
+        LinkToFile=False,
+        SaveWithDocument=True,
+    )
+
+    # 이미지 크기 조정
+    inline_shape.LockAspectRatio = True
+    inline_shape.Width = cm_to_points(16.0)
+
+    return inline_shape
+
 
 def add_stamp_image_to_word(document):
     """
@@ -347,6 +385,10 @@ def create_extension_word_from_excel(
         if not customer_password:
             raise ValueError("Q8 셀의 생년월일 값이 비어 있어서 PDF 비밀번호를 만들 수 없습니다.")
 
+        # 고객 이메일: R8
+        email_value = sheet.Range("R8").Value
+        customer_email = "" if email_value is None else str(email_value).strip()
+       
         # 8. 파일명: N19 값 사용, yymmdd는 오늘 날짜로 교체
         filename_value = sheet.Range("N19").Value
         today_yymmdd = datetime.today().strftime("%y%m%d")
@@ -389,13 +431,16 @@ def create_extension_word_from_excel(
         # 15. 도장 삽입
         add_stamp_image_to_word(document)
 
-        # 16. docx 저장
+        # 16. 다음 페이지에 계좌 이미지 첨부
+        add_account_image_page(document)
+
+        # 17. docx 저장
         document.SaveAs2(
             str(docx_path),
             FileFormat=16,
         )
 
-        return customer_password, base_filename
+        return customer_password, base_filename, customer_email
 
     finally:
         if document is not None:
@@ -464,7 +509,7 @@ def generate_extension_confirmation(
 
     temp_docx_path = OUTPUT_CUSTOMER_DIR / "temp_extension_confirmation.docx"
 
-    customer_password, base_filename = create_extension_word_from_excel(
+    customer_password, base_filename, customer_email = create_extension_word_from_excel(
         account_no=account_no,
         valuation_amount=valuation_amount,
         auto_transfer_yn=auto_transfer_yn,
@@ -503,7 +548,7 @@ def generate_extension_confirmation(
 
     print(f"고객용 PDF 생성 완료: {customer_pdf_path}")
     print(f"고객용 PDF 비밀번호: {customer_password}")
-
+    print(f"고객 이메일: {customer_email}")
     print(f"PB용 PDF 생성 완료: {pb_pdf_path}")
     print(f"PB용 PDF 비밀번호: {pb_password}")
 
