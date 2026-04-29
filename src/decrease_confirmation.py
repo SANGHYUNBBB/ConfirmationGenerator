@@ -421,7 +421,7 @@ def create_decrease_word_from_excel(
         document.PageSetup.PageWidth = cm_to_points(21)
         document.PageSetup.PageHeight = cm_to_points(29.7)
 
-        document.PageSetup.TopMargin = cm_to_points(1)
+        document.PageSetup.TopMargin = cm_to_points(-2)
         document.PageSetup.BottomMargin = cm_to_points(0.5)
         document.PageSetup.LeftMargin = cm_to_points(1.2)
         document.PageSetup.RightMargin = cm_to_points(1.2)
@@ -444,8 +444,8 @@ def create_decrease_word_from_excel(
         table.Rows.AllowBreakAcrossPages = False        
 
         # 글자 크기는 절대 건드리지 않음
-        table.Range.ParagraphFormat.SpaceBefore = 8
-        table.Range.ParagraphFormat.SpaceAfter = 0
+        table.Range.ParagraphFormat.SpaceBefore = 5
+        table.Range.ParagraphFormat.SpaceAfter = 5
         table.Range.ParagraphFormat.LineSpacingRule = 0
         table.Rows.HeightRule = 0
 
