@@ -305,6 +305,41 @@ def add_stamp_image_to_word(document):
 
     return shape
 
+def add_blank_line_before_date_text(document):
+    """
+    Word 문서 안에서 오늘 날짜 문구를 찾아
+    그 앞에 빈 줄을 추가합니다.
+
+    고객정보와 날짜 사이 간격을 만들기 위한 함수입니다.
+    """
+
+    date_text = datetime.today().strftime("%Y년 %m월 %d일")
+
+    wdFindContinue = 1
+    wdCollapseStart = 1
+
+    find_range = document.Content
+    find = find_range.Find
+    find.ClearFormatting()
+    find.Text = date_text
+    find.Forward = True
+    find.Wrap = wdFindContinue
+
+    found = find.Execute()
+
+    if not found:
+        print(f"날짜 문구를 찾지 못했습니다: {date_text}")
+        return False
+
+    # 날짜 문구 시작 위치로 이동
+    insert_range = find_range.Duplicate
+    insert_range.Collapse(wdCollapseStart)
+
+    # 날짜 앞에 빈 줄 추가
+    insert_range.InsertBefore("\r\r\r")
+
+    # print(f"날짜 앞 빈 줄 추가 완료: {date_text}")
+    return True
 
 def create_extension_word_from_excel(
     account_no: str,
@@ -403,7 +438,7 @@ def create_extension_word_from_excel(
         document.PageSetup.PageWidth = cm_to_points(21)
         document.PageSetup.PageHeight = cm_to_points(29.7)
 
-        document.PageSetup.TopMargin = cm_to_points(1)
+        document.PageSetup.TopMargin = cm_to_points(-3)
         document.PageSetup.BottomMargin = cm_to_points(0.5)
         document.PageSetup.LeftMargin = cm_to_points(1.2)
         document.PageSetup.RightMargin = cm_to_points(1.2)
@@ -424,6 +459,13 @@ def create_extension_word_from_excel(
         table.Rows.Alignment = 1
 
         # 글자 크기는 건드리지 않음
+        table.Range.ParagraphFormat.SpaceBefore = 5
+        table.Range.ParagraphFormat.SpaceAfter = 5
+        table.Range.ParagraphFormat.LineSpacingRule = 0
+        table.Rows.HeightRule = 0
+
+        # 고객정보와 날짜 사이 간격 추가
+        add_blank_line_before_date_text(document)
 
         # 14. 로고 삽입
         add_logo_image_to_word(document)

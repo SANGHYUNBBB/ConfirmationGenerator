@@ -264,6 +264,23 @@ def add_stamp_image_to_word(document):
 
     return shape
 
+def add_space_before_date_row(table, date_text: str, space_before_pt: int = 8):
+    """
+    표 안에서 date_text와 같은 문구가 들어있는 셀을 찾아
+    그 문단 위쪽 간격을 추가합니다.
+    """
+    for row_idx in range(1, table.Rows.Count + 1):
+        for col_idx in range(1, table.Columns.Count + 1):
+            try:
+                cell = table.Cell(row_idx, col_idx)
+                cell_text = cell.Range.Text.replace("\r", "").replace("\x07", "").strip()
+
+                if cell_text == date_text:
+                    cell.Range.ParagraphFormat.SpaceBefore = space_before_pt
+                    cell.Range.ParagraphFormat.SpaceAfter = 0
+                    return
+            except Exception:
+                continue
 
 
 def add_logo_image_to_word(document):
@@ -448,6 +465,18 @@ def create_decrease_word_from_excel(
         table.Range.ParagraphFormat.SpaceAfter = 5
         table.Range.ParagraphFormat.LineSpacingRule = 0
         table.Rows.HeightRule = 0
+
+
+        # 글자 크기는 건드리지 않음
+        table.Range.ParagraphFormat.SpaceBefore = 5
+        table.Range.ParagraphFormat.SpaceAfter = 5
+        table.Range.ParagraphFormat.LineSpacingRule = 0
+        table.Rows.HeightRule = 0
+
+
+        # 날짜 줄만 위에 간격 추가
+        today_kor = datetime.today().strftime("%Y년 %m월 %d일")
+        add_space_before_date_row(table, today_kor, space_before_pt=30)
 
         # 14. 로고 삽입 (우측 상단)
         add_logo_image_to_word(document)
