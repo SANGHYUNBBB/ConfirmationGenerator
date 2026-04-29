@@ -438,7 +438,7 @@ def create_decrease_word_from_excel(
         document.PageSetup.PageWidth = cm_to_points(21)
         document.PageSetup.PageHeight = cm_to_points(29.7)
 
-        document.PageSetup.TopMargin = cm_to_points(-2)
+        document.PageSetup.TopMargin = cm_to_points(-1.2)
         document.PageSetup.BottomMargin = cm_to_points(0.5)
         document.PageSetup.LeftMargin = cm_to_points(1.2)
         document.PageSetup.RightMargin = cm_to_points(1.2)
@@ -476,7 +476,7 @@ def create_decrease_word_from_excel(
 
         # 날짜 줄만 위에 간격 추가
         today_kor = datetime.today().strftime("%Y년 %m월 %d일")
-        add_space_before_date_row(table, today_kor, space_before_pt=30)
+        add_space_before_date_row(table, today_kor, space_before_pt=25)
 
         # 14. 로고 삽입 (우측 상단)
         add_logo_image_to_word(document)
